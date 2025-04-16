@@ -47,7 +47,7 @@ export default function UsersPage() {
   const [openDialog, setOpenDialog] = useState(false);
   const [editingUser, setEditingUser] = useState<any | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
-  const [roleFilter, setRoleFilter] = useState("");
+  const [roleFilter, setRoleFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 8;
 
@@ -58,7 +58,7 @@ export default function UsersPage() {
       user.email.toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesRole = 
-      roleFilter === "" || user.role === roleFilter;
+      roleFilter === "all" || user.role === roleFilter;
       
     return matchesSearch && matchesRole;
   });
@@ -174,7 +174,7 @@ export default function UsersPage() {
                   <SelectValue placeholder="Perfil de acesso" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Todos os perfis</SelectItem>
+                  <SelectItem value="all">Todos os perfis</SelectItem>
                   <SelectItem value="Administrador">Administrador</SelectItem>
                   <SelectItem value="Operador">Operador</SelectItem>
                   <SelectItem value="Visualizador">Visualizador</SelectItem>
@@ -185,7 +185,7 @@ export default function UsersPage() {
                   variant="outline" 
                   onClick={() => {
                     setSearchTerm("");
-                    setRoleFilter("");
+                    setRoleFilter("all");
                   }}
                 >
                   Limpar
@@ -380,13 +380,14 @@ export default function UsersPage() {
                 Departamento
               </Label>
               <Select 
-                value={editingUser?.department || ''} 
+                value={editingUser?.department || 'none'} 
                 onValueChange={(value) => setEditingUser({ ...editingUser, department: value })}
               >
                 <SelectTrigger className="col-span-3 field-material">
                   <SelectValue placeholder="Selecione um departamento" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="none">Selecione um departamento</SelectItem>
                   <SelectItem value="TI">TI</SelectItem>
                   <SelectItem value="Logística">Logística</SelectItem>
                   <SelectItem value="Vendas">Vendas</SelectItem>

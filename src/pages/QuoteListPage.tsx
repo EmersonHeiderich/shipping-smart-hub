@@ -36,7 +36,7 @@ const mockQuotes = Array.from({ length: 15 }, (_, i) => ({
 export default function QuoteListPage() {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedStatus, setSelectedStatus] = useState<string>("");
+  const [selectedStatus, setSelectedStatus] = useState<string>("all");
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
   const [isLoading, setIsLoading] = useState(false);
@@ -48,7 +48,7 @@ export default function QuoteListPage() {
       quote.client.toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesStatus = 
-      selectedStatus === "" || quote.status === selectedStatus;
+      selectedStatus === "all" || quote.status === selectedStatus;
       
     return matchesSearch && matchesStatus;
   });
@@ -118,7 +118,7 @@ export default function QuoteListPage() {
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Todos os status</SelectItem>
+                  <SelectItem value="all">Todos os status</SelectItem>
                   <SelectItem value="Pendente">Pendente</SelectItem>
                   <SelectItem value="Aprovada">Aprovada</SelectItem>
                   <SelectItem value="Cancelada">Cancelada</SelectItem>
@@ -130,7 +130,7 @@ export default function QuoteListPage() {
                   variant="outline" 
                   onClick={() => {
                     setSearchTerm("");
-                    setSelectedStatus("");
+                    setSelectedStatus("all");
                   }}
                 >
                   Limpar
