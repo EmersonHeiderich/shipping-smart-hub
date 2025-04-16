@@ -13,6 +13,19 @@ export interface User {
   last_sign_in_at?: string | null;
 }
 
+export interface UserCreateInput {
+  email: string;
+  password: string;
+  name: string;
+  role: 'admin' | 'operator';
+}
+
+export interface UserUpdateInput {
+  name?: string;
+  role?: 'admin' | 'operator';
+  password?: string;
+}
+
 export function useUsers() {
   const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -90,7 +103,7 @@ export function useUsers() {
     }
   };
 
-  const updateUser = async (id: string, data: Partial<User>) => {
+  const updateUser = async (id: string, data: UserUpdateInput) => {
     try {
       setIsLoading(true);
       
