@@ -2,20 +2,31 @@
 import { ReactNode, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { toast } from '@/hooks/use-toast';
 
 type ProtectedRouteProps = {
   children: ReactNode;
+  adminOnly?: boolean;
 };
 
-export function ProtectedRoute({ children }: ProtectedRouteProps) {
-  const { user, isLoading } = useAuth();
+export function ProtectedRoute({ children, adminOnly = false }: ProtectedRouteProps) {
+  const { user, isLoading, userDetails } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!isLoading && !user) {
-      navigate('/login');
+    if (!isLoading) {
+      if (!user) {
+        navigate('/login');
+      } else if (adminOnly && userDetails?.role !== 'admin') {
+        toast({
+          title: "Acesso negado",
+          description: "Você não tem permissão para acessar esta página",
+          variant: "destructive",
+        });
+        navigate('/dashboard');
+      }
     }
-  }, [user, isLoading, navigate]);
+  }, [user, isLoading, navigate, adminOnly, userDetails]);
 
   if (isLoading) {
     return (
@@ -26,6 +37,10 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
   }
 
   if (!user) {
+    return null;
+  }
+
+  if (adminOnly && userDetails?.role !== 'admin') {
     return null;
   }
 

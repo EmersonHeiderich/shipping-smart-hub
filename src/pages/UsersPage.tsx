@@ -1,5 +1,5 @@
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { 
@@ -30,26 +30,33 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-
-// Mock data for users
-const mockUsers = Array.from({ length: 15 }, (_, i) => ({
-  id: i + 1,
-  name: `Usuário ${i + 1}`,
-  email: `usuario${i + 1}@exemplo.com`,
-  role: i % 3 === 0 ? 'Administrador' : i % 3 === 1 ? 'Operador' : 'Visualizador',
-  department: i % 4 === 0 ? 'TI' : i % 4 === 1 ? 'Logística' : i % 4 === 2 ? 'Vendas' : 'Financeiro',
-  lastLogin: i % 2 === 0 ? new Date().toLocaleDateString('pt-BR') : new Date(Date.now() - 86400000 * (i % 7 + 1)).toLocaleDateString('pt-BR'),
-  isActive: i % 5 !== 0,
-}));
+import { useUsers, User as UserType } from "@/hooks/useUsers";
+import { useToast } from "@/hooks/use-toast";
+import { 
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle 
+} from "@/components/ui/alert-dialog";
 
 export default function UsersPage() {
-  const [users, setUsers] = useState(mockUsers);
+  const { users, isLoading, fetchUsers, createUser, updateUser, deleteUser, toggleUserActive } = useUsers();
+  const { toast } = useToast();
   const [openDialog, setOpenDialog] = useState(false);
+  const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
   const [editingUser, setEditingUser] = useState<any | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 8;
+
+  useEffect(() => {
+    fetchUsers();
+  }, []);
 
   // Filter users based on search term and role
   const filteredUsers = users.filter(user => {
@@ -74,8 +81,7 @@ export default function UsersPage() {
       id: null,
       name: '',
       email: '',
-      role: 'Visualizador',
-      department: '',
+      role: 'operator',
       isActive: true,
       password: '',
       confirmPassword: ''
@@ -83,57 +89,117 @@ export default function UsersPage() {
     setOpenDialog(true);
   };
 
-  const handleEditUser = (user: any) => {
+  const handleEditUser = (user: UserType) => {
     setEditingUser({
       ...user,
+      isActive: true, // Por padrão, supondo que o usuário está ativo
       password: '',
       confirmPassword: ''
     });
     setOpenDialog(true);
   };
 
-  const handleSaveUser = () => {
+  const handleSaveUser = async () => {
+    if (!editingUser.name || !editingUser.email) {
+      toast({
+        title: "Erro ao salvar usuário",
+        description: "Nome e e-mail são obrigatórios",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (editingUser.id) {
       // Update existing user
-      setUsers(users.map(u => 
-        u.id === editingUser.id ? {
-          ...editingUser,
-          lastLogin: u.lastLogin
-        } : u
-      ));
+      const userData: Partial<UserType> = {
+        name: editingUser.name,
+        role: editingUser.role
+      };
+
+      if (editingUser.password && editingUser.password === editingUser.confirmPassword) {
+        userData.password = editingUser.password;
+      } else if (editingUser.password && editingUser.password !== editingUser.confirmPassword) {
+        toast({
+          title: "Erro ao atualizar usuário",
+          description: "As senhas não coincidem",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const success = await updateUser(editingUser.id, userData);
+      if (success) {
+        setOpenDialog(false);
+      }
     } else {
       // Add new user
-      setUsers([
-        ...users,
-        {
-          ...editingUser,
-          id: Math.max(...users.map(u => u.id), 0) + 1,
-          lastLogin: 'Nunca'
-        }
-      ]);
+      if (!editingUser.password) {
+        toast({
+          title: "Erro ao criar usuário",
+          description: "A senha é obrigatória para novos usuários",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (editingUser.password !== editingUser.confirmPassword) {
+        toast({
+          title: "Erro ao criar usuário",
+          description: "As senhas não coincidem",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const success = await createUser(
+        editingUser.email, 
+        editingUser.password, 
+        editingUser.name, 
+        editingUser.role
+      );
+      
+      if (success) {
+        setOpenDialog(false);
+      }
     }
-    setOpenDialog(false);
   };
 
-  const handleDeleteUser = (id: number) => {
-    setUsers(users.filter(u => u.id !== id));
+  const handleDeleteUser = async () => {
+    if (editingUser?.id) {
+      const success = await deleteUser(editingUser.id);
+      if (success) {
+        setOpenDeleteDialog(false);
+      }
+    }
   };
 
-  const handleToggleActive = (id: number) => {
-    setUsers(users.map(u => 
-      u.id === id ? { ...u, isActive: !u.isActive } : u
-    ));
+  const confirmDeleteUser = (user: UserType) => {
+    setEditingUser(user);
+    setOpenDeleteDialog(true);
+  };
+
+  const handleToggleActive = async (id: string, currentStatus: boolean) => {
+    await toggleUserActive(id, !currentStatus);
   };
 
   const getRoleBadgeClass = (role: string) => {
     switch (role) {
-      case 'Administrador':
+      case 'admin':
         return 'bg-primary-100 text-primary-800 dark:bg-primary-900/30 dark:text-primary-400';
-      case 'Operador':
-        return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400';
       default:
         return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400';
     }
+  };
+
+  const formatDate = (dateString?: string | null) => {
+    if (!dateString) return 'Nunca';
+    return new Date(dateString).toLocaleDateString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
   };
 
   return (
@@ -175,9 +241,8 @@ export default function UsersPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todos os perfis</SelectItem>
-                  <SelectItem value="Administrador">Administrador</SelectItem>
-                  <SelectItem value="Operador">Operador</SelectItem>
-                  <SelectItem value="Visualizador">Visualizador</SelectItem>
+                  <SelectItem value="admin">Administrador</SelectItem>
+                  <SelectItem value="operator">Operador</SelectItem>
                 </SelectContent>
               </Select>
               <div className="flex justify-end">
@@ -196,78 +261,82 @@ export default function UsersPage() {
         </Card>
 
         <Card className="card-material overflow-hidden">
-          <div className="rounded-md">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Nome</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Perfil</TableHead>
-                  <TableHead>Departamento</TableHead>
-                  <TableHead>Último acesso</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Ações</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {currentUsers.length === 0 ? (
+          {isLoading ? (
+            <div className="flex justify-center items-center p-8">
+              <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+            </div>
+          ) : (
+            <div className="rounded-md">
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-6 text-muted-foreground">
-                      Nenhum usuário encontrado
-                    </TableCell>
+                    <TableHead>Nome</TableHead>
+                    <TableHead>Email</TableHead>
+                    <TableHead>Perfil</TableHead>
+                    <TableHead>Último acesso</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Ações</TableHead>
                   </TableRow>
-                ) : (
-                  currentUsers.map((user) => (
-                    <TableRow key={user.id}>
-                      <TableCell className="font-medium">{user.name}</TableCell>
-                      <TableCell>{user.email}</TableCell>
-                      <TableCell>
-                        <Badge className={`rounded-full ${getRoleBadgeClass(user.role)}`}>
-                          {user.role}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>{user.department}</TableCell>
-                      <TableCell>{user.lastLogin}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center">
-                          <Switch
-                            checked={user.isActive}
-                            onCheckedChange={() => handleToggleActive(user.id)}
-                            className="mr-2"
-                          />
-                          <span className={user.isActive ? 'text-green-600' : 'text-muted-foreground'}>
-                            {user.isActive ? 'Ativo' : 'Inativo'}
-                          </span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-primary-500 hover:text-primary-600 hover:bg-primary-50"
-                            onClick={() => handleEditUser(user)}
-                            title="Editar"
-                          >
-                            <Edit2 className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50"
-                            onClick={() => handleDeleteUser(user.id)}
-                            title="Excluir"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
+                </TableHeader>
+                <TableBody>
+                  {currentUsers.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center py-6 text-muted-foreground">
+                        Nenhum usuário encontrado
                       </TableCell>
                     </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
+                  ) : (
+                    currentUsers.map((user) => (
+                      <TableRow key={user.id}>
+                        <TableCell className="font-medium">{user.name}</TableCell>
+                        <TableCell>{user.email}</TableCell>
+                        <TableCell>
+                          <Badge className={`rounded-full ${getRoleBadgeClass(user.role)}`}>
+                            {user.role === 'admin' ? 'Administrador' : 'Operador'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>{formatDate(user.last_sign_in_at)}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center">
+                            <Switch
+                              checked={true} // Placeholder, precisamos da informação real de status
+                              onCheckedChange={() => handleToggleActive(user.id, true)} // Placeholder
+                              className="mr-2"
+                            />
+                            <span className="text-green-600">
+                              Ativo
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-primary-500 hover:text-primary-600 hover:bg-primary-50"
+                              onClick={() => handleEditUser(user)}
+                              title="Editar"
+                            >
+                              <Edit2 className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50"
+                              onClick={() => confirmDeleteUser(user)}
+                              title="Excluir"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          )}
           
           {totalPages > 1 && (
             <div className="flex items-center justify-between px-4 py-3 border-t">
@@ -355,6 +424,7 @@ export default function UsersPage() {
                 value={editingUser?.email || ''}
                 onChange={(e) => setEditingUser({ ...editingUser, email: e.target.value })}
                 className="col-span-3 field-material"
+                disabled={editingUser?.id} // Não permitir editar email de usuários existentes
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
@@ -362,36 +432,15 @@ export default function UsersPage() {
                 Perfil
               </Label>
               <Select 
-                value={editingUser?.role || 'Visualizador'} 
+                value={editingUser?.role || 'operator'} 
                 onValueChange={(value) => setEditingUser({ ...editingUser, role: value })}
               >
                 <SelectTrigger className="col-span-3 field-material">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Administrador">Administrador</SelectItem>
-                  <SelectItem value="Operador">Operador</SelectItem>
-                  <SelectItem value="Visualizador">Visualizador</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="userDepartment" className="text-right">
-                Departamento
-              </Label>
-              <Select 
-                value={editingUser?.department || 'none'} 
-                onValueChange={(value) => setEditingUser({ ...editingUser, department: value })}
-              >
-                <SelectTrigger className="col-span-3 field-material">
-                  <SelectValue placeholder="Selecione um departamento" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Selecione um departamento</SelectItem>
-                  <SelectItem value="TI">TI</SelectItem>
-                  <SelectItem value="Logística">Logística</SelectItem>
-                  <SelectItem value="Vendas">Vendas</SelectItem>
-                  <SelectItem value="Financeiro">Financeiro</SelectItem>
+                  <SelectItem value="admin">Administrador</SelectItem>
+                  <SelectItem value="operator">Operador</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -452,8 +501,8 @@ export default function UsersPage() {
               disabled={
                 !editingUser?.name || 
                 !editingUser?.email || 
-                (!editingUser?.id && (!editingUser?.password || !editingUser?.confirmPassword)) ||
-                (!editingUser?.id && editingUser?.password !== editingUser?.confirmPassword)
+                (!editingUser?.id && !editingUser?.password) ||
+                (editingUser?.password && editingUser?.password !== editingUser?.confirmPassword)
               }
             >
               Salvar
@@ -461,6 +510,24 @@ export default function UsersPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete User Confirmation Dialog */}
+      <AlertDialog open={openDeleteDialog} onOpenChange={setOpenDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Você tem certeza?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta ação não pode ser desfeita. O usuário {editingUser?.name} será removido permanentemente do sistema.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteUser} className="bg-red-600 hover:bg-red-700">
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </MainLayout>
   );
 }

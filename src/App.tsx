@@ -37,8 +37,8 @@ const App = () => (
             <Route path="/rastreio" element={<ProtectedRoute><TrackingPage /></ProtectedRoute>} />
             
             {/* Admin Routes */}
-            <Route path="/admin/transportadoras" element={<ProtectedRoute><CarriersPage /></ProtectedRoute>} />
-            <Route path="/admin/usuarios" element={<ProtectedRoute><UsersPage /></ProtectedRoute>} />
+            <Route path="/admin/transportadoras" element={<ProtectedRoute adminOnly><CarriersPage /></ProtectedRoute>} />
+            <Route path="/admin/usuarios" element={<ProtectedRoute adminOnly><UsersPage /></ProtectedRoute>} />
             
             {/* Catch-all route for 404 */}
             <Route path="*" element={<NotFound />} />

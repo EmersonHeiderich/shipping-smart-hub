@@ -4,11 +4,18 @@ import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 
+type UserDetails = {
+  id: string;
+  email: string;
+  name: string;
+  role: 'admin' | 'operator';
+};
+
 type AuthContextType = {
   session: Session | null;
   user: User | null;
+  userDetails: UserDetails | null;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string, name: string) => Promise<void>;
   signOut: () => Promise<void>;
   isLoading: boolean;
 };
@@ -18,7 +25,26 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
+  const [userDetails, setUserDetails] = useState<UserDetails | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  const fetchUserDetails = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', userId)
+        .single();
+      
+      if (error) throw error;
+      
+      if (data) {
+        setUserDetails(data as UserDetails);
+      }
+    } catch (error) {
+      console.error('Error fetching user details:', error);
+    }
+  };
 
   useEffect(() => {
     // Set up auth state listener FIRST
@@ -26,6 +52,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       (event, currentSession) => {
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
+        
+        if (currentSession?.user) {
+          // Use setTimeout to avoid potential deadlocks with Supabase client
+          setTimeout(() => {
+            fetchUserDetails(currentSession.user.id);
+          }, 0);
+        } else {
+          setUserDetails(null);
+        }
+        
         setIsLoading(false);
       }
     );
@@ -34,6 +70,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
       setSession(currentSession);
       setUser(currentSession?.user ?? null);
+      
+      if (currentSession?.user) {
+        fetchUserDetails(currentSession.user.id);
+      }
+      
       setIsLoading(false);
     });
 
@@ -49,33 +90,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       toast({
         title: "Erro ao entrar",
         description: error.message || "Ocorreu um erro ao tentar fazer login.",
-        variant: "destructive",
-      });
-      throw error;
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const signUp = async (email: string, password: string, name: string) => {
-    try {
-      setIsLoading(true);
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: { name }
-        }
-      });
-      if (error) throw error;
-      toast({
-        title: "Conta criada com sucesso!",
-        description: "Verifique seu e-mail para confirmar o cadastro.",
-      });
-    } catch (error: any) {
-      toast({
-        title: "Erro ao criar conta",
-        description: error.message || "Ocorreu um erro ao tentar criar uma nova conta.",
         variant: "destructive",
       });
       throw error;
@@ -101,7 +115,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ session, user, signIn, signUp, signOut, isLoading }}>
+    <AuthContext.Provider value={{ session, user, userDetails, signIn, signOut, isLoading }}>
       {children}
     </AuthContext.Provider>
   );
