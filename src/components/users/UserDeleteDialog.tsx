@@ -10,7 +10,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { User } from "@/hooks/useUsers";
+import { User } from "@/types/user";
 
 interface UserDeleteDialogProps {
   open: boolean;

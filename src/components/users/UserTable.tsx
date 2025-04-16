@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Edit2, Trash2 } from "lucide-react";
-import { User } from "@/hooks/useUsers";
+import { User } from "@/types/user";
 
 interface UserTableProps {
   users: User[];
