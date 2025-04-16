@@ -1,5 +1,5 @@
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,14 @@ import {
   ChevronRight, Package, User, 
   Box, Truck, Plus, MinusCircle 
 } from "lucide-react";
+import { PackageTypeAdjuster } from "@/components/quotes/PackageTypeAdjuster";
+import { QuoteResults } from "@/components/quotes/QuoteResults";
+import { usePackageTypes, PackageType } from "@/hooks/usePackageTypes";
+import { useClients, Client } from "@/hooks/useClients";
+import { useCarriers } from "@/hooks/useCarriers";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "@/hooks/use-toast";
 
 type Step = 'client' | 'packages' | 'quotes';
 
@@ -23,23 +31,34 @@ interface PackageItem {
 }
 
 interface ClientInfo {
+  id?: number;
   code: string;
   cnpj: string;
   name?: string;
   address?: string;
+  city?: string;
+  state?: string;
+  zip_code?: string;
   merchandiseValue: number;
 }
 
-// Predefined package types
-const predefinedPackages: Omit<PackageItem, 'id' | 'quantity'>[] = [
-  { name: "Caixa Pequena", length: 30, width: 20, height: 15, weight: 1 },
-  { name: "Caixa Média", length: 50, width: 40, height: 30, weight: 3 },
-  { name: "Caixa Grande", length: 60, width: 50, height: 40, weight: 5 },
-  { name: "Envelope", length: 35, width: 25, height: 1, weight: 0.2 },
-  { name: "Pallet", length: 120, width: 100, height: 15, weight: 10 },
-];
+interface QuoteResult {
+  id: number;
+  carrier: string;
+  price: number;
+  percentage: number;
+  deliveryTime: string;
+  quoteNumber: string;
+  modal: string;
+  message?: string;
+}
 
 export default function NewQuotePage() {
+  const { user } = useAuth();
+  const { packageTypes, isLoading: isLoadingPackages, updatePackageType } = usePackageTypes();
+  const { getClientByCode, getClientByCNPJ } = useClients();
+  const { carriers } = useCarriers();
+  
   const [currentStep, setCurrentStep] = useState<Step>('client');
   const [clientInfo, setClientInfo] = useState<ClientInfo>({
     code: '',
@@ -56,36 +75,117 @@ export default function NewQuotePage() {
   });
   const [isLoading, setIsLoading] = useState(false);
   const [showCustomForm, setShowCustomForm] = useState(false);
+  const [quoteResults, setQuoteResults] = useState<QuoteResult[]>([]);
+  const [quoteId, setQuoteId] = useState<string | null>(null);
 
-  // If we had client data from ERP, this would fetch it
-  const fetchClientByCode = () => {
-    // Mock client fetch
-    if (clientInfo.code === "123") {
-      setClientInfo({
-        ...clientInfo,
-        cnpj: "12.345.678/0001-99",
-        name: "Empresa ABC Ltda",
-        address: "Rua Exemplo, 123 - São Paulo/SP"
+  // If we're on the quotes step and have no results yet, start a timer
+  useEffect(() => {
+    let intervalId: NodeJS.Timeout;
+    
+    if (currentStep === 'quotes' && quoteResults.length === 0 && carriers.length > 0) {
+      // Simulate receiving quotes from carriers one by one
+      let currentIndex = 0;
+      
+      intervalId = setInterval(() => {
+        if (currentIndex < carriers.length) {
+          const carrier = carriers[currentIndex];
+          
+          // Generate a random quote
+          const price = parseFloat((Math.random() * 200 + 80).toFixed(2));
+          const percentage = parseFloat(((price / clientInfo.merchandiseValue) * 100).toFixed(2));
+          
+          const newQuote: QuoteResult = {
+            id: carrier.id,
+            carrier: carrier.name,
+            price,
+            percentage,
+            deliveryTime: `${Math.floor(Math.random() * 5) + 1} dias úteis`,
+            quoteNumber: `QT-${Math.floor(Math.random() * 10000)}`,
+            modal: Math.random() > 0.5 ? "Rodoviário" : "Aéreo",
+            message: Math.random() > 0.7 ? "Seguro incluso no valor" : undefined
+          };
+          
+          setQuoteResults(prev => [...prev, newQuote]);
+          currentIndex++;
+        } else {
+          clearInterval(intervalId);
+        }
+      }, 1500); // Receive a new quote every 1.5 seconds
+    }
+    
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [currentStep, quoteResults.length, carriers, clientInfo.merchandiseValue]);
+
+  const fetchClientByCode = async () => {
+    try {
+      const client = await getClientByCode(clientInfo.code);
+      if (client) {
+        setClientInfo({
+          ...clientInfo,
+          id: client.id,
+          cnpj: client.cnpj,
+          name: client.name,
+          address: client.address,
+          city: client.city,
+          state: client.state,
+          zip_code: client.zip_code
+        });
+      } else {
+        toast({
+          title: "Cliente não encontrado",
+          description: "Nenhum cliente encontrado com este código.",
+          variant: "destructive",
+        });
+      }
+    } catch (error: any) {
+      toast({
+        title: "Erro ao buscar cliente",
+        description: error.message,
+        variant: "destructive",
       });
     }
   };
 
-  const fetchClientByCNPJ = () => {
-    // Mock client fetch
-    if (clientInfo.cnpj === "12.345.678/0001-99") {
-      setClientInfo({
-        ...clientInfo,
-        code: "123",
-        name: "Empresa ABC Ltda",
-        address: "Rua Exemplo, 123 - São Paulo/SP"
+  const fetchClientByCNPJ = async () => {
+    try {
+      const client = await getClientByCNPJ(clientInfo.cnpj);
+      if (client) {
+        setClientInfo({
+          ...clientInfo,
+          id: client.id,
+          code: client.code || '',
+          name: client.name,
+          address: client.address,
+          city: client.city,
+          state: client.state,
+          zip_code: client.zip_code
+        });
+      } else {
+        toast({
+          title: "Cliente não encontrado",
+          description: "Nenhum cliente encontrado com este CNPJ.",
+          variant: "destructive",
+        });
+      }
+    } catch (error: any) {
+      toast({
+        title: "Erro ao buscar cliente",
+        description: error.message,
+        variant: "destructive",
       });
     }
   };
 
-  const addPredefinedPackage = (packageTemplate: Omit<PackageItem, 'id' | 'quantity'>, quantity: number = 1) => {
+  const addPredefinedPackage = (packageTemplate: PackageType, quantity: number = 1) => {
     const newItem: PackageItem = {
-      ...packageTemplate,
       id: Math.random().toString(36).substring(2, 11),
+      name: packageTemplate.name,
+      length: packageTemplate.length,
+      width: packageTemplate.width,
+      height: packageTemplate.height,
+      weight: packageTemplate.weight,
       quantity
     };
     
@@ -125,13 +225,80 @@ export default function NewQuotePage() {
     }
   };
 
-  const requestQuotes = () => {
-    setIsLoading(true);
-    // This would send requests to carriers
-    setTimeout(() => {
-      setIsLoading(false);
+  const requestQuotes = async () => {
+    try {
+      setIsLoading(true);
+      setQuoteResults([]);
+      
+      // Calculate totals
+      const totalPackages = packageItems.reduce((sum, item) => sum + item.quantity, 0);
+      const totalWeight = packageItems.reduce((sum, item) => sum + (item.weight * item.quantity), 0);
+      const totalVolume = packageItems.reduce(
+        (sum, item) => sum + ((item.length * item.width * item.height / 1000000) * item.quantity), 0
+      );
+      
+      // Save the quote to Supabase
+      const { data, error } = await supabase
+        .from('quotes')
+        .insert({
+          user_id: user?.id,
+          client_id: clientInfo.id,
+          merchandise_value: clientInfo.merchandiseValue,
+          total_weight: totalWeight,
+          total_volume: totalVolume,
+          total_packages: totalPackages,
+          status: 'pending'
+        })
+        .select()
+        .single();
+      
+      if (error) throw error;
+      
+      // Save the packages
+      if (data) {
+        setQuoteId(data.id);
+        
+        const packagesToInsert = packageItems.map(item => ({
+          quote_id: data.id,
+          name: item.name,
+          length: item.length,
+          width: item.width,
+          height: item.height,
+          weight: item.weight,
+          quantity: item.quantity
+        }));
+        
+        const { error: packagesError } = await supabase
+          .from('quote_packages')
+          .insert(packagesToInsert);
+        
+        if (packagesError) throw packagesError;
+      }
+      
+      // Move to the quotes step
       setCurrentStep('quotes');
-    }, 1500);
+    } catch (error: any) {
+      toast({
+        title: "Erro ao solicitar cotações",
+        description: error.message,
+        variant: "destructive",
+      });
+      console.error("Error requesting quotes:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const resetForm = () => {
+    setCurrentStep('client');
+    setPackageItems([]);
+    setClientInfo({
+      code: '',
+      cnpj: '',
+      merchandiseValue: 0
+    });
+    setQuoteResults([]);
+    setQuoteId(null);
   };
 
   // Calculate total weight and volume
@@ -142,37 +309,6 @@ export default function NewQuotePage() {
   const totalVolume = packageItems.reduce(
     (sum, item) => sum + ((item.length * item.width * item.height / 1000000) * item.quantity), 0
   );
-
-  // Mock carriers and quotes result
-  const mockQuotes = [
-    { 
-      carrier: "Transportadora A", 
-      price: 125.50, 
-      percentage: 1.25, 
-      deliveryTime: "2 dias úteis",
-      quoteNumber: "QT123456",
-      modal: "Rodoviário",
-      message: "Cotação válida por 7 dias"
-    },
-    { 
-      carrier: "Transportadora B", 
-      price: 142.75, 
-      percentage: 1.43, 
-      deliveryTime: "1 dia útil",
-      quoteNumber: "Q-987654",
-      modal: "Aéreo",
-      message: "Seguro incluso no valor"
-    },
-    { 
-      carrier: "Transportadora C", 
-      price: 98.30, 
-      percentage: 0.98, 
-      deliveryTime: "3 dias úteis",
-      quoteNumber: "C2023-789",
-      modal: "Rodoviário",
-      message: "Tarifa econômica"
-    }
-  ];
 
   return (
     <MainLayout>
@@ -188,20 +324,20 @@ export default function NewQuotePage() {
         <div className="flex justify-center mb-8">
           <div className="flex items-center">
             <div className={`flex items-center justify-center w-10 h-10 rounded-full ${
-              currentStep === 'client' ? 'bg-primary-500 text-white' : 'bg-primary-100 text-primary-700'
+              currentStep === 'client' ? 'bg-primary text-primary-foreground' : 'bg-primary/20 text-primary'
             }`}>
               <User size={20} />
             </div>
-            <div className="w-12 h-1 bg-primary-100 mx-1"></div>
+            <div className="w-12 h-1 bg-primary/20 mx-1"></div>
             <div className={`flex items-center justify-center w-10 h-10 rounded-full ${
-              currentStep === 'packages' ? 'bg-primary-500 text-white' : 
-              currentStep === 'quotes' ? 'bg-primary-100 text-primary-700' : 'bg-muted text-muted-foreground'
+              currentStep === 'packages' ? 'bg-primary text-primary-foreground' : 
+              currentStep === 'quotes' ? 'bg-primary/20 text-primary' : 'bg-muted text-muted-foreground'
             }`}>
               <Box size={20} />
             </div>
-            <div className="w-12 h-1 bg-primary-100 mx-1"></div>
+            <div className="w-12 h-1 bg-primary/20 mx-1"></div>
             <div className={`flex items-center justify-center w-10 h-10 rounded-full ${
-              currentStep === 'quotes' ? 'bg-primary-500 text-white' : 'bg-muted text-muted-foreground'
+              currentStep === 'quotes' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
             }`}>
               <Truck size={20} />
             </div>
@@ -210,7 +346,7 @@ export default function NewQuotePage() {
 
         {/* Step 1: Client Information */}
         {currentStep === 'client' && (
-          <Card className="card-material">
+          <Card>
             <CardHeader>
               <CardTitle className="text-xl">Informações do Cliente</CardTitle>
             </CardHeader>
@@ -223,7 +359,6 @@ export default function NewQuotePage() {
                       id="clientCode"
                       value={clientInfo.code}
                       onChange={e => setClientInfo({...clientInfo, code: e.target.value})}
-                      className="field-material"
                       placeholder="Ex: 123456"
                     />
                     <Button 
@@ -242,7 +377,6 @@ export default function NewQuotePage() {
                       id="clientCNPJ"
                       value={clientInfo.cnpj}
                       onChange={e => setClientInfo({...clientInfo, cnpj: e.target.value})}
-                      className="field-material"
                       placeholder="Ex: 12.345.678/0001-99"
                     />
                     <Button 
@@ -257,11 +391,19 @@ export default function NewQuotePage() {
               </div>
 
               {clientInfo.name && (
-                <div className="bg-primary-50/50 dark:bg-primary-900/10 p-4 rounded-md animate-fade-in">
-                  <h3 className="font-medium mb-2">Dados do Cliente</h3>
-                  <p><span className="font-medium">Nome:</span> {clientInfo.name}</p>
-                  <p><span className="font-medium">CNPJ:</span> {clientInfo.cnpj}</p>
-                  <p><span className="font-medium">Endereço:</span> {clientInfo.address}</p>
+                <div className="bg-primary-500/5 p-4 rounded-md animate-fade-in space-y-2">
+                  <h3 className="font-medium">Dados do Cliente</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2">
+                    <div>
+                      <span className="font-medium">Nome:</span> {clientInfo.name}
+                    </div>
+                    <div>
+                      <span className="font-medium">CNPJ:</span> {clientInfo.cnpj}
+                    </div>
+                    <div className="md:col-span-2">
+                      <span className="font-medium">Endereço:</span> {clientInfo.address}{clientInfo.city && `, ${clientInfo.city}`}{clientInfo.state && `/${clientInfo.state}`}{clientInfo.zip_code && ` - CEP: ${clientInfo.zip_code}`}
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -275,7 +417,6 @@ export default function NewQuotePage() {
                     ...clientInfo, 
                     merchandiseValue: parseFloat(e.target.value) || 0
                   })}
-                  className="field-material"
                   placeholder="Ex: 10000.00"
                 />
               </div>
@@ -284,7 +425,6 @@ export default function NewQuotePage() {
                 <Button
                   onClick={handleNextStep}
                   disabled={!clientInfo.merchandiseValue}
-                  className="btn-material-primary"
                 >
                   Próximo 
                   <ChevronRight className="ml-1 h-4 w-4" />
@@ -298,43 +438,53 @@ export default function NewQuotePage() {
         {currentStep === 'packages' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div className="lg:col-span-2 space-y-6">
-              <Card className="card-material">
+              <Card>
                 <CardHeader>
                   <CardTitle className="text-xl">Embalagens Pré-definidas</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {predefinedPackages.map((pkg, index) => (
-                      <div 
-                        key={index}
-                        className="border rounded-md p-4 hover:border-primary-300 transition-colors cursor-pointer"
-                        onClick={() => addPredefinedPackage(pkg)}
-                      >
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <h3 className="font-medium">{pkg.name}</h3>
-                            <p className="text-sm text-muted-foreground">
-                              {pkg.length} x {pkg.width} x {pkg.height} cm
-                            </p>
-                            <p className="text-sm text-muted-foreground">
-                              Peso: {pkg.weight} kg
-                            </p>
-                          </div>
-                          <Button 
-                            size="sm" 
-                            variant="ghost"
-                            className="text-primary-500 hover:text-primary-600 hover:bg-primary-50"
-                          >
-                            <Plus size={16} />
-                          </Button>
-                        </div>
+                    {isLoadingPackages ? (
+                      <div className="col-span-2 py-8 flex justify-center">
+                        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary"></div>
                       </div>
-                    ))}
+                    ) : (
+                      packageTypes.map((pkg) => (
+                        <div 
+                          key={pkg.id}
+                          className="border rounded-md p-4 hover:border-primary/50 transition-colors cursor-pointer relative"
+                          onClick={() => addPredefinedPackage(pkg)}
+                        >
+                          <PackageTypeAdjuster 
+                            packageType={pkg} 
+                            onUpdate={updatePackageType} 
+                          />
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <h3 className="font-medium">{pkg.name}</h3>
+                              <p className="text-sm text-muted-foreground">
+                                {pkg.length} x {pkg.width} x {pkg.height} cm
+                              </p>
+                              <p className="text-sm text-muted-foreground">
+                                Peso: {pkg.weight} kg
+                              </p>
+                            </div>
+                            <Button 
+                              size="sm" 
+                              variant="ghost"
+                              className="text-primary hover:text-primary/80 hover:bg-primary/5"
+                            >
+                              <Plus size={16} />
+                            </Button>
+                          </div>
+                        </div>
+                      ))
+                    )}
                   </div>
                 </CardContent>
               </Card>
 
-              <Card className="card-material">
+              <Card>
                 <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle className="text-xl">Embalagem Personalizada</CardTitle>
                   <Button 
@@ -354,7 +504,6 @@ export default function NewQuotePage() {
                           id="customName"
                           value={customPackage.name}
                           onChange={e => setCustomPackage({...customPackage, name: e.target.value})}
-                          className="field-material"
                         />
                       </div>
                       <div className="space-y-2">
@@ -364,7 +513,6 @@ export default function NewQuotePage() {
                           type="number"
                           value={customPackage.weight || ''}
                           onChange={e => setCustomPackage({...customPackage, weight: parseFloat(e.target.value) || 0})}
-                          className="field-material"
                         />
                       </div>
                     </div>
@@ -376,7 +524,6 @@ export default function NewQuotePage() {
                           type="number"
                           value={customPackage.length || ''}
                           onChange={e => setCustomPackage({...customPackage, length: parseFloat(e.target.value) || 0})}
-                          className="field-material"
                         />
                       </div>
                       <div className="space-y-2">
@@ -386,7 +533,6 @@ export default function NewQuotePage() {
                           type="number"
                           value={customPackage.width || ''}
                           onChange={e => setCustomPackage({...customPackage, width: parseFloat(e.target.value) || 0})}
-                          className="field-material"
                         />
                       </div>
                       <div className="space-y-2">
@@ -396,7 +542,6 @@ export default function NewQuotePage() {
                           type="number"
                           value={customPackage.height || ''}
                           onChange={e => setCustomPackage({...customPackage, height: parseFloat(e.target.value) || 0})}
-                          className="field-material"
                         />
                       </div>
                     </div>
@@ -404,7 +549,6 @@ export default function NewQuotePage() {
                       <Button 
                         onClick={addCustomPackage}
                         disabled={!customPackage.length || !customPackage.width || !customPackage.height || !customPackage.weight}
-                        className="btn-material-primary"
                       >
                         Adicionar à Lista
                       </Button>
@@ -415,7 +559,7 @@ export default function NewQuotePage() {
             </div>
 
             <div className="space-y-6">
-              <Card className="card-material">
+              <Card>
                 <CardHeader>
                   <CardTitle className="text-xl">Resumo da Cotação</CardTitle>
                 </CardHeader>
@@ -424,6 +568,10 @@ export default function NewQuotePage() {
                     <div className="flex justify-between py-1">
                       <span className="text-muted-foreground">Cliente:</span>
                       <span className="font-medium">{clientInfo.name || 'Não especificado'}</span>
+                    </div>
+                    <div className="flex justify-between py-1">
+                      <span className="text-muted-foreground">CNPJ:</span>
+                      <span className="font-medium">{clientInfo.cnpj || 'Não especificado'}</span>
                     </div>
                     <div className="flex justify-between py-1">
                       <span className="text-muted-foreground">Valor da mercadoria:</span>
@@ -480,7 +628,7 @@ export default function NewQuotePage() {
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-7 w-7 text-red-500 hover:text-red-600 hover:bg-red-50"
+                                className="h-7 w-7 text-destructive hover:text-destructive/80 hover:bg-destructive/10"
                                 onClick={() => removePackage(item.id)}
                               >
                                 <MinusCircle size={16} />
@@ -504,7 +652,6 @@ export default function NewQuotePage() {
                 <Button
                   onClick={handleNextStep}
                   disabled={packageItems.length === 0 || isLoading}
-                  className="btn-material-primary"
                 >
                   {isLoading ? "Solicitando..." : "Solicitar Cotações"}
                 </Button>
@@ -516,7 +663,7 @@ export default function NewQuotePage() {
         {/* Step 3: Quotes Result */}
         {currentStep === 'quotes' && (
           <div className="space-y-8">
-            <Card className="card-material">
+            <Card>
               <CardHeader>
                 <CardTitle className="text-xl">Resumo da Solicitação</CardTitle>
               </CardHeader>
@@ -525,6 +672,7 @@ export default function NewQuotePage() {
                   <div className="space-y-1">
                     <p className="text-sm text-muted-foreground">Cliente</p>
                     <p className="font-medium">{clientInfo.name || 'Não especificado'}</p>
+                    <p className="text-sm">{clientInfo.cnpj || ''}</p>
                   </div>
                   <div className="space-y-1">
                     <p className="text-sm text-muted-foreground">Valor da Mercadoria</p>
@@ -570,60 +718,11 @@ export default function NewQuotePage() {
               </CardContent>
             </Card>
 
-            <div>
-              <h2 className="text-xl font-semibold mb-4">Cotações Recebidas</h2>
-              <div className="space-y-4">
-                {mockQuotes.map((quote, index) => (
-                  <Card 
-                    key={index} 
-                    className={`card-material overflow-hidden border-l-4 ${
-                      index === 0 ? 'border-l-primary-500' : 
-                      index === 1 ? 'border-l-secondary-500' : 
-                      'border-l-muted'
-                    }`}
-                  >
-                    <CardContent className="p-0">
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 p-4">
-                        <div className="space-y-1">
-                          <p className="text-sm text-muted-foreground">Transportadora</p>
-                          <p className="font-medium">{quote.carrier}</p>
-                        </div>
-                        <div className="space-y-1">
-                          <p className="text-sm text-muted-foreground">Valor do Frete</p>
-                          <p className="font-bold text-lg">R$ {quote.price.toFixed(2)}</p>
-                        </div>
-                        <div className="space-y-1">
-                          <p className="text-sm text-muted-foreground">% sobre Mercadoria</p>
-                          <p className="font-medium">{quote.percentage.toFixed(2)}%</p>
-                        </div>
-                        <div className="space-y-1">
-                          <p className="text-sm text-muted-foreground">Prazo de Entrega</p>
-                          <p className="font-medium">{quote.deliveryTime}</p>
-                        </div>
-                        <div className="space-y-1">
-                          <p className="text-sm text-muted-foreground">Modal</p>
-                          <p className="font-medium">{quote.modal}</p>
-                        </div>
-                      </div>
-                      <div className="bg-muted/20 px-4 py-3 border-t flex flex-col md:flex-row md:items-center justify-between gap-2">
-                        <div>
-                          <span className="text-sm text-muted-foreground">Cotação: </span>
-                          <span className="text-sm font-medium">{quote.quoteNumber}</span>
-                          {quote.message && (
-                            <span className="text-sm ml-4">{quote.message}</span>
-                          )}
-                        </div>
-                        <Button 
-                          className={index === 0 ? "btn-material-primary" : "btn-material"}
-                        >
-                          Selecionar
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </div>
+            <QuoteResults 
+              results={quoteResults}
+              isLoading={quoteResults.length === 0 && currentStep === 'quotes'}
+              onNewQuote={resetForm}
+            />
 
             <div className="flex justify-between pt-4">
               <Button
@@ -636,18 +735,7 @@ export default function NewQuotePage() {
                 <Button variant="outline">
                   Exportar PDF
                 </Button>
-                <Button 
-                  onClick={() => {
-                    setCurrentStep('client');
-                    setPackageItems([]);
-                    setClientInfo({
-                      code: '',
-                      cnpj: '',
-                      merchandiseValue: 0
-                    });
-                  }}
-                  className="btn-material-primary"
-                >
+                <Button onClick={resetForm}>
                   Nova Cotação
                 </Button>
               </div>
